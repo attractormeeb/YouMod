@@ -1,4 +1,4 @@
-name: Build IPA with tweaks unsponsor
+name: Build IPA with tweaks sponsor
 on:
   workflow_dispatch:
     inputs:
@@ -293,6 +293,32 @@ jobs:
       - name: Clone iSponsorBlock
         if: ${{ inputs.isponsorblock }}
         run: git clone --quiet --depth=1 https://github.com/Galactic-Dev/iSponsorBlock.git
+
+      # Workaround for Galactic-Dev/iSponsorBlock#135 (YouTube 21.25.5+):
+      # the top-right settings-button hooks can prevent YouTube from launching.
+      # SponsorBlock's main playback hooks still initialize; only the top-bar
+      # settings button is disabled until upstream ships a compatibility fix.
+      - name: Patch iSponsorBlock startup compatibility
+        if: ${{ inputs.isponsorblock }}
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path("iSponsorBlock/iSponsorBlock.xm")
+          source = path.read_text()
+          marker = "%init(JustSettings);"
+
+          if marker not in source:
+              raise SystemExit("iSponsorBlock source changed: %init(JustSettings); not found")
+
+          source = source.replace(
+              marker,
+              "/* Disabled by IPA workflow for YouTube 21.25.5+ compatibility (issue #135). */\n    /* %init(JustSettings); */",
+              1,
+          )
+          path.write_text(source)
+          print("Patched iSponsorBlock: disabled JustSettings top-bar hooks")
+          PY
            
       - name: Clone YTVideoOverlay
         if: ${{ inputs.youpip || inputs.ytuhd || inputs.youquality || inputs.youspeed || inputs.youmute || inputs.youloop || inputs.youshare || inputs.getcap }}
