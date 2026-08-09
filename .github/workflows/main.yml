@@ -295,9 +295,8 @@ jobs:
         run: git clone --quiet --depth=1 https://github.com/Galactic-Dev/iSponsorBlock.git
 
       # Workaround for Galactic-Dev/iSponsorBlock#135 (YouTube 21.25.5+):
-      # the top-right settings-button hooks can prevent YouTube from launching.
-      # SponsorBlock's main playback hooks still initialize; only the top-bar
-      # settings button is disabled until upstream ships a compatibility fix.
+      # Remove the entire JustSettings Logos group, not only its %init call.
+      # Logos rejects a declared group that is never initialized.
       - name: Patch iSponsorBlock startup compatibility
         if: ${{ inputs.isponsorblock }}
         run: |
@@ -306,18 +305,40 @@ jobs:
 
           path = Path("iSponsorBlock/iSponsorBlock.xm")
           source = path.read_text()
-          marker = "%init(JustSettings);"
 
-          if marker not in source:
-              raise SystemExit("iSponsorBlock source changed: %init(JustSettings); not found")
+          group_marker = "%group JustSettings"
+          next_marker = "static void loadPrefs()"
+          init_marker = "%init(JustSettings);"
 
-          source = source.replace(
-              marker,
-              "/* Disabled by IPA workflow for YouTube 21.25.5+ compatibility (issue #135). */\n    /* %init(JustSettings); */",
-              1,
+          start = source.find(group_marker)
+          end = source.find(next_marker, start if start != -1 else 0)
+
+          if start == -1 or end == -1:
+              raise SystemExit(
+                  "iSponsorBlock source changed: could not locate the JustSettings group"
+              )
+
+          source = (
+              source[:start]
+              + "// JustSettings disabled by IPA workflow for YouTube 21.25.5+ compatibility.\n\n"
+              + source[end:]
           )
+
+          # The ctor still initializes the removed group in upstream source.
+          if init_marker not in source:
+              raise SystemExit(
+                  "iSponsorBlock source changed: %init(JustSettings); not found after group removal"
+              )
+          source = source.replace(init_marker, "", 1)
+
           path.write_text(source)
-          print("Patched iSponsorBlock: disabled JustSettings top-bar hooks")
+
+          # Fail early if either Logos directive survived the patch.
+          patched = path.read_text()
+          if group_marker in patched or init_marker in patched:
+              raise SystemExit("Failed to fully disable JustSettings")
+
+          print("Patched iSponsorBlock: removed JustSettings group and its ctor init")
           PY
            
       - name: Clone YTVideoOverlay
